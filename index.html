@@ -1938,7 +1938,7 @@ input { font-family: inherit; }
     </button>
     <button class="nav-btn" id="nav-pool" onclick="goToSection('sec-pool')">
       <div class="nav-btn-icon">词</div>
-      <div class="nav-btn-label">词库</div>
+      <div class="nav-btn-label">WORDS</div>
     </button>
     <button class="nav-btn" id="nav-settings" onclick="goToSection('sec-settings')">
       <div class="nav-btn-icon">设</div>
@@ -2175,9 +2175,10 @@ input { font-family: inherit; }
 // ═══════════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════════
-const LS_SRS      = 'hsk_srs_v1';
-const LS_DIAG     = 'hsk_diag_v1';
-const LS_SETTINGS = 'hsk_settings_v1';
+const LS_SRS           = 'hsk_srs_v1';
+const LS_DIAG          = 'hsk_diag_v1';
+const LS_DIAG_PROGRESS = 'hsk_diag_progress_v1';
+const LS_SETTINGS      = 'hsk_settings_v1';
 
 function getSettings() {
   try { return JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}'); } catch { return {}; }
@@ -23061,6 +23062,15 @@ function getSRS()  { try { return JSON.parse(localStorage.getItem(LS_SRS)  || '{
 function saveSRS(d){ localStorage.setItem(LS_SRS,  JSON.stringify(d)); }
 function getDiag() { try { return JSON.parse(localStorage.getItem(LS_DIAG) || '{}'); } catch { return {}; } }
 function saveDiag(d){ localStorage.setItem(LS_DIAG, JSON.stringify(d)); }
+function getDiagProgress()  { try { return JSON.parse(localStorage.getItem(LS_DIAG_PROGRESS) || 'null'); } catch { return null; } }
+function saveDiagProgress() {
+  localStorage.setItem(LS_DIAG_PROGRESS, JSON.stringify({
+    lv: diagLevelKey,
+    ids: diagQueue.map(c => c.id),
+    idx: diagIdx
+  }));
+}
+function clearDiagProgress() { localStorage.removeItem(LS_DIAG_PROGRESS); }
 
 // ═══════════════════════════════════════════════
 // SRS ENGINE
@@ -23234,7 +23244,7 @@ function renderModuleStudySection(mk) {
           <span style="color:var(--hsk6)">${stats.nope} new</span>
         </div>
         <button class="diag-banner-btn" style="background:rgba(110,196,184,0.15);color:#6ec4b8;border-color:rgba(110,196,184,0.3)"
-          onclick="openModuleDiag('${mk}')">Re-run →</button>
+          onclick="restartModuleDiag('${mk}')">Re-run →</button>
       </div>`;
   } else {
     banner.style.cssText = '';
@@ -23279,12 +23289,32 @@ function renderModuleStudySection(mk) {
   }).join('');
 }
 
+function restartModuleDiag(mk) { clearDiagProgress(); openModuleDiag(mk); }
+
 function openModuleDiag(mk) {
   diagLevelKey = mk;
+  const labels = { chengyu:'成语库', elective:'选修 7–9' };
+
+  // Resume an in-progress session if one exists for this module
+  const saved = getDiagProgress();
+  if (saved && saved.lv === mk && saved.idx < saved.ids.length) {
+    const idSet = new Map(CARDS.map(c => [c.id, c]));
+    const rebuilt = saved.ids.map(id => idSet.get(id)).filter(Boolean);
+    if (rebuilt.length) {
+      diagQueue = rebuilt;
+      diagIdx   = saved.idx;
+      document.getElementById('diagTitle').textContent = `Diagnostic · ${labels[mk] || mk} ↩ resuming`;
+      renderDiagCard();
+      document.getElementById('diagPanel').classList.add('open');
+      return;
+    }
+  }
+
+  // Fresh start
   diagIdx = 0;
   diagQueue = CARDS.filter(c => c.module === mk);
   if (!diagQueue.length) diagQueue = CARDS.slice(0,5);
-  const labels = { chengyu:'成语库', elective:'选修 7–9' };
+  saveDiagProgress();
   document.getElementById('diagTitle').textContent = `Diagnostic · ${labels[mk] || mk}`;
   renderDiagCard();
   document.getElementById('diagPanel').classList.add('open');
@@ -23314,7 +23344,7 @@ function renderStudySection(lv) {
           <span style="color:var(--hsk6)">${stats.nope} new</span>
         </div>
         <button class="diag-banner-btn" style="background:rgba(110,196,184,0.15);color:#6ec4b8;border-color:rgba(110,196,184,0.3)"
-          onclick="openDiag('${lv}')">Re-run →</button>
+          onclick="restartDiag('${lv}')">Re-run →</button>
       </div>`;
   } else {
     banner.style.cssText = '';
@@ -23419,12 +23449,32 @@ function openUnitCards(unitId, chapterId) {
 // ═══════════════════════════════════════════════
 // DIAGNOSTIC
 // ═══════════════════════════════════════════════
+function restartDiag(lv) { clearDiagProgress(); openDiag(lv); }
+
 function openDiag(lv) {
   diagLevelKey = lv;
-  diagIdx = 0;
   const mk  = lv === '13' ? 'hsk13' : `hsk${lv}`;
+
+  // Resume an in-progress session if one exists for this level
+  const saved = getDiagProgress();
+  if (saved && saved.lv === lv && saved.idx < saved.ids.length) {
+    const idSet = new Map(CARDS.map(c => [c.id, c]));
+    const rebuilt = saved.ids.map(id => idSet.get(id)).filter(Boolean);
+    if (rebuilt.length) {
+      diagQueue = rebuilt;
+      diagIdx   = saved.idx;
+      document.getElementById('diagTitle').textContent = `Diagnostic · ${LEVELS[lv].label} ↩ resuming`;
+      renderDiagCard();
+      document.getElementById('diagPanel').classList.add('open');
+      return;
+    }
+  }
+
+  // Fresh start
+  diagIdx = 0;
   diagQueue = CARDS.filter(c => c.module === mk);
   if (!diagQueue.length) diagQueue = CARDS.slice(0,5);
+  saveDiagProgress();
   document.getElementById('diagTitle').textContent = `Diagnostic · ${LEVELS[lv].label}`;
   renderDiagCard();
   document.getElementById('diagPanel').classList.add('open');
@@ -23449,6 +23499,7 @@ function diagRate(rating) {
   scheduleCard(item.id, {know:2,unsure:1,nope:0}[rating], rating);
   diagIdx++;
   if (diagIdx >= diagQueue.length) { finishDiag(); return; }
+  saveDiagProgress();
   const card = document.getElementById('diagCard');
   card.style.animation = 'none';
   requestAnimationFrame(() => { card.style.animation = 'fadeUp .25s ease both'; });
@@ -23466,6 +23517,7 @@ function finishDiag() {
   diag[mk]          = true;
   diag[mk + '_stats'] = stats;
   saveDiag(diag);
+  clearDiagProgress();
   closeDiag();
   if (isModuleKey) renderModuleStudySection(diagLevelKey);
   else renderStudySection(diagLevelKey);
