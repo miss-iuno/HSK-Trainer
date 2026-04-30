@@ -528,6 +528,50 @@ input { font-family: inherit; }
   border-radius: var(--r-xl);
   padding: 32px 24px 28px;
   text-align: center;
+  cursor: pointer;
+  perspective: 1000px;
+  -webkit-tap-highlight-color: transparent;
+}
+.diag-card-inner {
+  display: grid;
+  min-height: 130px;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  transition: transform 0.42s cubic-bezier(.4,0,.2,1);
+}
+.diag-card.flipped .diag-card-inner {
+  transform: rotateY(180deg);
+  -webkit-transform: rotateY(180deg);
+}
+.diag-card-front,
+.diag-card-back {
+  grid-area: 1 / 1;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.diag-card-back {
+  transform: rotateY(180deg);
+  -webkit-transform: rotateY(180deg);
+}
+.diag-card-trad {
+  font-family: var(--font-zh);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  min-height: 1em;
+}
+.flip-hint {
+  font-family: var(--font-body);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0.45;
+  margin-top: 14px;
 }
 .diag-card-zh {
   font-family: var(--font-zh);
@@ -661,6 +705,34 @@ input { font-family: inherit; }
   padding: 28px 20px 22px;
   text-align: center;
   position: relative;
+  cursor: pointer;
+  perspective: 1000px;
+  -webkit-tap-highlight-color: transparent;
+}
+.flashcard-inner {
+  display: grid;
+  min-height: 150px;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  transition: transform 0.42s cubic-bezier(.4,0,.2,1);
+}
+.flashcard.flipped .flashcard-inner {
+  transform: rotateY(180deg);
+  -webkit-transform: rotateY(180deg);
+}
+.flashcard-front,
+.flashcard-back {
+  grid-area: 1 / 1;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.flashcard-back {
+  transform: rotateY(180deg);
+  -webkit-transform: rotateY(180deg);
 }
 .flashcard-zh {
   font-family: var(--font-zh);
@@ -1958,10 +2030,18 @@ input { font-family: inherit; }
     <div class="diag-progress-bar-fill" id="diagProgressFill" style="width:20%"></div>
   </div>
   <div class="diag-body">
-    <div class="diag-card fadein" id="diagCard">
-      <div class="diag-card-zh" id="diagZh">尽管</div>
-      <div class="diag-card-pinyin" id="diagPinyin">jǐn guǎn</div>
-      <div class="diag-card-en" id="diagEn">despite, even though</div>
+    <div class="diag-card fadein" id="diagCard" onclick="flipDiagCard()">
+      <div class="diag-card-inner" id="diagCardInner">
+        <div class="diag-card-front">
+          <div class="diag-card-zh" id="diagZh">尽管</div>
+          <div class="diag-card-trad" id="diagTrad"></div>
+          <div class="flip-hint">tap to reveal</div>
+        </div>
+        <div class="diag-card-back">
+          <div class="diag-card-pinyin" id="diagPinyin">jǐn guǎn</div>
+          <div class="diag-card-en" id="diagEn">despite, even though</div>
+        </div>
+      </div>
     </div>
     <div class="diag-choices">
       <button class="diag-choice-btn know" onclick="diagRate('know')">
@@ -23064,11 +23144,12 @@ function getDiag() { try { return JSON.parse(localStorage.getItem(LS_DIAG) || '{
 function saveDiag(d){ localStorage.setItem(LS_DIAG, JSON.stringify(d)); }
 function getDiagProgress()  { try { return JSON.parse(localStorage.getItem(LS_DIAG_PROGRESS) || 'null'); } catch { return null; } }
 function saveDiagProgress() {
-  localStorage.setItem(LS_DIAG_PROGRESS, JSON.stringify({
-    lv: diagLevelKey,
-    ids: diagQueue.map(c => c.id),
-    idx: diagIdx
-  }));
+  try {
+    localStorage.setItem(LS_DIAG_PROGRESS, JSON.stringify({
+      lv: diagLevelKey,
+      idx: diagIdx
+    }));
+  } catch(e) { /* quota — ignore, next rating will retry */ }
 }
 function clearDiagProgress() { localStorage.removeItem(LS_DIAG_PROGRESS); }
 
@@ -23294,28 +23375,21 @@ function restartModuleDiag(mk) { clearDiagProgress(); openModuleDiag(mk); }
 function openModuleDiag(mk) {
   diagLevelKey = mk;
   const labels = { chengyu:'成语库', elective:'选修 7–9' };
+  const fullQueue = CARDS.filter(c => c.module === mk);
+  diagQueue = fullQueue.length ? fullQueue : CARDS.slice(0, 5);
 
   // Resume an in-progress session if one exists for this module
   const saved = getDiagProgress();
-  if (saved && saved.lv === mk && saved.idx < saved.ids.length) {
-    const idSet = new Map(CARDS.map(c => [c.id, c]));
-    const rebuilt = saved.ids.map(id => idSet.get(id)).filter(Boolean);
-    if (rebuilt.length) {
-      diagQueue = rebuilt;
-      diagIdx   = saved.idx;
-      document.getElementById('diagTitle').textContent = `Diagnostic · ${labels[mk] || mk} ↩ resuming`;
-      renderDiagCard();
-      document.getElementById('diagPanel').classList.add('open');
-      return;
-    }
+  if (saved && saved.lv === mk && typeof saved.idx === 'number'
+      && saved.idx > 0 && saved.idx < diagQueue.length) {
+    diagIdx = saved.idx;
+    document.getElementById('diagTitle').textContent = `Diagnostic · ${labels[mk] || mk} ↩ resuming`;
+  } else {
+    diagIdx = 0;
+    saveDiagProgress();
+    document.getElementById('diagTitle').textContent = `Diagnostic · ${labels[mk] || mk}`;
   }
 
-  // Fresh start
-  diagIdx = 0;
-  diagQueue = CARDS.filter(c => c.module === mk);
-  if (!diagQueue.length) diagQueue = CARDS.slice(0,5);
-  saveDiagProgress();
-  document.getElementById('diagTitle').textContent = `Diagnostic · ${labels[mk] || mk}`;
   renderDiagCard();
   document.getElementById('diagPanel').classList.add('open');
 }
@@ -23454,28 +23528,22 @@ function restartDiag(lv) { clearDiagProgress(); openDiag(lv); }
 function openDiag(lv) {
   diagLevelKey = lv;
   const mk  = lv === '13' ? 'hsk13' : `hsk${lv}`;
+  const fullQueue = CARDS.filter(c => c.module === mk);
+  if (!fullQueue.length) diagQueue = CARDS.slice(0, 5);
+  else diagQueue = fullQueue;
 
   // Resume an in-progress session if one exists for this level
   const saved = getDiagProgress();
-  if (saved && saved.lv === lv && saved.idx < saved.ids.length) {
-    const idSet = new Map(CARDS.map(c => [c.id, c]));
-    const rebuilt = saved.ids.map(id => idSet.get(id)).filter(Boolean);
-    if (rebuilt.length) {
-      diagQueue = rebuilt;
-      diagIdx   = saved.idx;
-      document.getElementById('diagTitle').textContent = `Diagnostic · ${LEVELS[lv].label} ↩ resuming`;
-      renderDiagCard();
-      document.getElementById('diagPanel').classList.add('open');
-      return;
-    }
+  if (saved && saved.lv === lv && typeof saved.idx === 'number'
+      && saved.idx > 0 && saved.idx < diagQueue.length) {
+    diagIdx = saved.idx;
+    document.getElementById('diagTitle').textContent = `Diagnostic · ${LEVELS[lv].label} ↩ resuming`;
+  } else {
+    diagIdx = 0;
+    saveDiagProgress();
+    document.getElementById('diagTitle').textContent = `Diagnostic · ${LEVELS[lv].label}`;
   }
 
-  // Fresh start
-  diagIdx = 0;
-  diagQueue = CARDS.filter(c => c.module === mk);
-  if (!diagQueue.length) diagQueue = CARDS.slice(0,5);
-  saveDiagProgress();
-  document.getElementById('diagTitle').textContent = `Diagnostic · ${LEVELS[lv].label}`;
   renderDiagCard();
   document.getElementById('diagPanel').classList.add('open');
 }
@@ -23485,12 +23553,24 @@ function closeDiag() { document.getElementById('diagPanel').classList.remove('op
 function renderDiagCard() {
   const item = diagQueue[diagIdx];
   if (!item) { finishDiag(); return; }
+  // Reset flip to front face
+  document.getElementById('diagCard').classList.remove('flipped');
   document.getElementById('diagZh').textContent     = item.zh;
   document.getElementById('diagPinyin').textContent = item.pinyin;
   document.getElementById('diagEn').textContent     = item.en;
+  const tradEl = document.getElementById('diagTrad');
+  tradEl.textContent = (item.trad && item.trad !== item.zh) ? item.trad : '';
   const pct = (diagIdx / diagQueue.length * 100).toFixed(0);
   document.getElementById('diagProgressFill').style.width = pct + '%';
   document.getElementById('diagProgressText').textContent = `${diagIdx+1} / ${diagQueue.length}`;
+}
+
+function flipDiagCard() {
+  document.getElementById('diagCard').classList.toggle('flipped');
+}
+
+function flipCard(el) {
+  el.classList.toggle('flipped');
 }
 
 function diagRate(rating) {
@@ -23580,13 +23660,20 @@ function renderCard() {
       : '';
 
     bodyHTML = `
-      <div class="flashcard fadein">
-        <div class="flashcard-zh">${card.zh}</div>
-        ${showTrad() && card.trad && card.trad !== card.zh
-          ? `<div class="flashcard-trad"><span class="trad-label">繁</span>${card.trad}</div>` : ''}
-        <div class="flashcard-pinyin">${card.pinyin}</div>
-        <div class="flashcard-en">${card.en}</div>
-        <div class="flashcard-tags">${regTag}<span class="flashcard-tag tag-chapter">成语</span></div>
+      <div class="flashcard fadein" onclick="flipCard(this)">
+        <div class="flashcard-inner">
+          <div class="flashcard-front">
+            <div class="flashcard-zh">${card.zh}</div>
+            ${showTrad() && card.trad && card.trad !== card.zh
+              ? `<div class="flashcard-trad"><span class="trad-label">繁</span>${card.trad}</div>` : ''}
+            <div class="flip-hint">tap to reveal</div>
+          </div>
+          <div class="flashcard-back">
+            <div class="flashcard-pinyin">${card.pinyin}</div>
+            <div class="flashcard-en">${card.en}</div>
+            <div class="flashcard-tags">${regTag}<span class="flashcard-tag tag-chapter">成语</span></div>
+          </div>
+        </div>
       </div>
 
       <div class="example-block" style="border-left-color:rgba(212,167,86,0.4)">
@@ -23618,13 +23705,20 @@ function renderCard() {
   } else {
     // ── Standard card layout ─────────────────
     bodyHTML = `
-      <div class="flashcard fadein">
-        <div class="flashcard-zh">${card.zh}</div>
-        ${showTrad() && card.trad && card.trad !== card.zh
-          ? `<div class="flashcard-trad"><span class="trad-label">繁</span>${card.trad}</div>` : ''}
-        <div class="flashcard-pinyin">${showTrad() || getSettings().showPinyin !== false ? card.pinyin : ''}</div>
-        <div class="flashcard-en">${card.en}</div>
-        <div class="flashcard-tags">${regTag}<span class="flashcard-tag tag-chapter">${card.chapter}</span></div>
+      <div class="flashcard fadein" onclick="flipCard(this)">
+        <div class="flashcard-inner">
+          <div class="flashcard-front">
+            <div class="flashcard-zh">${card.zh}</div>
+            ${showTrad() && card.trad && card.trad !== card.zh
+              ? `<div class="flashcard-trad"><span class="trad-label">繁</span>${card.trad}</div>` : ''}
+            <div class="flip-hint">tap to reveal</div>
+          </div>
+          <div class="flashcard-back">
+            <div class="flashcard-pinyin">${card.pinyin}</div>
+            <div class="flashcard-en">${card.en}</div>
+            <div class="flashcard-tags">${regTag}<span class="flashcard-tag tag-chapter">${card.chapter}</span></div>
+          </div>
+        </div>
       </div>
       <div class="compounds-drawer" id="compoundsDrawer">
         <button class="compounds-toggle" onclick="toggleCompounds()">
